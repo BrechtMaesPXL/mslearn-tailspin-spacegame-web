@@ -1,34 +1,54 @@
-# ASP.NET Core (.NET Framework)
-# Build and test ASP.NET Core projects targeting the full .NET Framework.
-# Add steps that publish symbols, save build artifacts, and more:
-# https://docs.microsoft.com/azure/devops/pipelines/languages/dotnet-core
-
 trigger:
 - main
+- development
+- feat-*
+
+pr:
+- main
+- development
 
 pool:
-  vmImage: 'windows-latest'
+  vmImage: 'ubuntu-latest'
 
-variables:
-  solution: '**/*.sln'
-  buildPlatform: 'Any CPU'
-  buildConfiguration: 'Release'
+stages:
+# Build Stage: Runs for all branches
+- stage: Build
+  displayName: 'Build Stage'
+  jobs:
+  - job: Build
+    displayName: 'Build Angular App'
+    steps:
+      - task: NodeTool@0
+        inputs:
+          versionSpec: '>=16.0.0'
+        displayName: 'Install Node.js'
 
-steps:
-- task: NuGetToolInstaller@1
+      - script: |
+          npm install -g @angular/cli
+          npm install
+        displayName: 'Install Dependencies'
 
-- task: NuGetCommand@2
-  inputs:
-    restoreSolution: '$(solution)'
+      - script: npm run build -- --configuration production
+        displayName: 'Build Angular App'
 
-- task: VSBuild@1
-  inputs:
-    solution: '$(solution)'
-    msbuildArgs: '/p:DeployOnBuild=true /p:WebPublishMethod=Package /p:PackageAsSingleFile=true /p:SkipInvalidConfigurations=true /p:DesktopBuildPackageLocation="$(build.artifactStagingDirectory)\WebApp.zip" /p:DeployIisAppPath="Default Web Site"'
-    platform: '$(buildPlatform)'
-    configuration: '$(buildConfiguration)'
+      - task: PublishBuildArtifacts@1
+        inputs:
+          PathtoPublish: 'dist/creditsplit'
+          ArtifactName: 'creditsplit-build'
+        displayName: 'Publish Build Artifacts'
 
-- task: VSTest@2
-  inputs:
-    platform: '$(buildPlatform)'
-    configuration: '$(buildConfiguration)'
+# Deploy Stage: Runs only for main and development branches
+- stage: Deploy
+  displayName: 'Deploy Stage'
+  dependsOn: Build
+  condition: and(succeeded(), or(eq(variables['Build.SourceBranch'], 'refs/heads/main'), eq(variables['Build.SourceBranch'], 'refs/heads/development')))
+  jobs:
+  - job: Deploy
+    displayName: 'Deploy to Azure Static Web App'
+    steps:
+      - task: AzureStaticWebApp@0
+        inputs:
+          azure_static_web_apps_api_token: $(STATIC_WEB_APP_API_TOKEN)
+          app_location: 'dist/creditsplit'
+          output_location: '/'
+        displayName: 'Deploy Angular App'
